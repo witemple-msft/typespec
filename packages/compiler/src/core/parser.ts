@@ -773,7 +773,7 @@ function createParser(code: string | SourceFile, options: ParseOptions = {}): Pa
     let signature: OperationSignature;
     const signaturePos = tokenPos();
     if (token === Token.OpenParen) {
-      const parameters = parseOperationParameters();
+      const parameters = parseOperationParametersModelOrReference();
       parseExpected(Token.Colon);
       const returnType = parseExpression();
 
@@ -807,6 +807,37 @@ function createParser(code: string | SourceFile, options: ParseOptions = {}): Pa
       decorators,
       ...finishNode(pos),
     };
+  }
+
+  function parseOperationParametersModelOrReference(): ModelExpressionNode | TypeReferenceNode {
+
+    // Requires lookahead 2
+    // <not an identifier> -> model body (e.g. decorator where the first token is `@`)
+    // <identifier> : -> model body
+    // <identifier> ? -> model body
+    // <identifier> [^:?] -> type reference (e.g. `foo.bar`)
+    const isTypeReference = scanner.lookahead(function (): boolean {
+      nextToken();
+
+      if (token() !== Token.Identifier) return false;
+
+      nextToken();
+
+      const second = token();
+      return second !== Token.Colon && second !== Token.Question;
+    });
+
+    if (isTypeReference) {
+      nextToken();
+
+      const ref = parseReferenceExpression();
+      
+      parseExpected(Token.CloseParen);
+
+      return ref;
+    } else {
+      return parseOperationParameters();
+    }
   }
 
   function parseOperationParameters(): ModelExpressionNode {

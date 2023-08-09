@@ -1,5 +1,5 @@
 import { deepStrictEqual, notStrictEqual, ok, strictEqual } from "assert";
-import { DecoratorContext, IntrinsicType, Operation, Type } from "../../src/core/types.js";
+import { DecoratorContext, IntrinsicType, Model, ModelProperty, Operation, Scalar, Type } from "../../src/core/types.js";
 import { getDoc } from "../../src/index.js";
 import { TestHost, createTestHost, expectDiagnostics } from "../../src/testing/index.js";
 
@@ -21,6 +21,49 @@ describe("compiler: operations", () => {
     const { foo } = (await testHost.compile("./main.tsp")) as { foo: Operation };
     strictEqual(foo.returnType.kind, "Intrinsic");
     strictEqual((foo.returnType as IntrinsicType).name, "void");
+  });
+
+  it("can accept a parameter", async () => {
+    testHost.addTypeSpecFile(
+      "main.tsp",
+      `
+      @test op foo(@test bar: string): void;
+    `
+    );
+
+    const { foo, bar } = (await testHost.compile("./main.tsp")) as {
+      foo: Operation,
+      bar: ModelProperty
+    };
+
+    strictEqual(foo.returnType.kind, "Intrinsic");
+    strictEqual((foo.returnType as IntrinsicType).name, "void");
+
+    strictEqual(bar.kind, "ModelProperty");
+    strictEqual(bar.type.kind, "Scalar");
+    strictEqual((bar.type as Scalar).name, "string");
+  });
+
+  it("can accept an optional parameter", async () => {
+    testHost.addTypeSpecFile(
+      "main.tsp",
+      `
+      @test op foo(@test bar?: string): void;
+    `
+    );
+
+    const { foo, bar } = (await testHost.compile("./main.tsp")) as {
+      foo: Operation,
+      bar: ModelProperty
+    };
+
+    strictEqual(foo.returnType.kind, "Intrinsic");
+    strictEqual((foo.returnType as IntrinsicType).name, "void");
+
+    strictEqual(bar.kind, "ModelProperty");
+    strictEqual(bar.optional, true);
+    strictEqual(bar.type.kind, "Scalar");
+    strictEqual((bar.type as Scalar).name, "string");
   });
 
   it("keeps reference to source operation", async () => {
@@ -379,6 +422,133 @@ describe("compiler: operations", () => {
         [foo, bar],
         [bar, foo],
       ]);
+    });
+  });
+
+  describe("type reference in parameter position", () => {
+    it("is allowed", async () => {
+      testHost.addTypeSpecFile("main.tsp", `
+        @test
+        model M {
+          bar: string;
+        }
+
+        @test
+        op foo(M): void;
+      `);
+
+      const { M, foo } = await testHost.compile("main.tsp") as {
+        M: Model,
+        foo: Operation
+      };
+
+      strictEqual(M.kind, "Model");
+      strictEqual(foo.kind, "Operation");
+      strictEqual(foo.parameters.properties.size, 1);
+      strictEqual(foo.parameters, M);
+
+      const fooBar = foo.parameters.properties.get("bar");
+      strictEqual(fooBar?.type.kind, "Scalar");
+      strictEqual((fooBar?.type as Scalar).name, "string");
+    });
+
+    it("admits templates", async () => {
+      testHost.addTypeSpecFile("main.tsp", `
+        @test
+        model M {
+          bar: string;
+        }
+
+        op fooLike<T>(T): void;
+
+        @test
+        op foo is fooLike<M>;
+      `);
+
+      const { M, foo } = await testHost.compile("main.tsp") as {
+        M: Model,
+        foo: Operation
+      };
+
+      strictEqual(M.kind, "Model");
+      strictEqual(foo.kind, "Operation");
+      strictEqual(foo.parameters.properties.size, 1);
+      strictEqual(foo.parameters, M);
+
+      const fooBar = foo.parameters.properties.get("bar");
+      strictEqual(fooBar?.type.kind, "Scalar");
+      strictEqual((fooBar?.type as Scalar).name, "string");
+    });
+
+    it("rejects a reference that is not a model", async () => {
+      testHost.addTypeSpecFile("main.tsp", `
+        @test
+        op foo(string): void;
+      `);
+
+      const diagnostics = await testHost.diagnose("main.tsp");
+
+      expectDiagnostics(diagnostics, [
+        {
+          code: "invalid-type-ref",
+          message: "operation parameters refer to a scalar type, but must be a model"
+        }
+      ]);
+    });
+
+    it("rejects a reference that is decorated (parses as model property)", async () => {
+      testHost.addTypeSpecFile("main.tsp", `
+        @test
+        op foo(@test bar): void;
+      `);
+
+      const [{ bar }, diagnostics] = await testHost.compileAndDiagnose("main.tsp");
+
+      strictEqual(bar.kind, "ModelProperty");
+
+      expectDiagnostics(diagnostics, [
+        {
+          code: "token-expected",
+          message: "':' expected.",
+          severity: "error"
+        }
+      ]);
+    });
+
+    it("handles undefined references", async () => {
+      testHost.addTypeSpecFile("main.tsp", `
+        op foo(bar): void;
+      `);
+
+      const diagnostics = await testHost.diagnose("main.tsp");
+
+      expectDiagnostics(diagnostics, [
+        {
+          code: "unknown-identifier",
+          severity: "error",
+          message: "Unknown identifier bar"
+        }
+      ]);
+    });
+
+    it("can accept an optional parameter", async () => {
+      testHost.addTypeSpecFile(
+        "main.tsp",
+        `
+        @test op foo(bar?: string): void;
+      `
+      );
+
+      const { foo } = (await testHost.compile("./main.tsp")) as {
+        foo: Operation,
+      };
+
+      strictEqual(foo.parameters.properties.size, 1);
+
+      const bar = foo.parameters.properties.get("bar");
+      strictEqual(bar?.optional, true);
+      strictEqual(bar?.type.kind, "Scalar");
+      strictEqual((bar?.type as Scalar).name, "string");
     });
   });
 });

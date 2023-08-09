@@ -314,6 +314,15 @@ export interface Scanner {
    * getTokenText().
    */
   getTokenValue(): string;
+
+  /**
+   * Execute a procedure in a lookahead context. After the procedure returns,
+   * the scanner state will be restored, and the results of any tokens scanned
+   * will be cached.
+   * 
+   * @param h The procedure to execute.
+   */
+  lookahead<T>(h: () => T): T;
 }
 
 export enum TokenFlags {
@@ -350,6 +359,21 @@ export function isStatementKeyword(token: Token) {
   return token >= Token.__StartStatementKeyword && token < Token.__EndStatementKeyword;
 }
 
+interface ScannerState {
+  position: number;
+  endPosition: number;
+  token: Token;
+  tokenPosition: number;
+  tokenFlags: TokenFlags;
+  isLookingAhead: boolean;
+  lookaheadCache: CachedToken[] | undefined;
+}
+
+interface CachedToken {
+  token: Token;
+  positionAfterScan: number;
+}
+
 export function createScanner(
   source: string | SourceFile,
   diagnosticHandler: DiagnosticHandler
@@ -361,6 +385,10 @@ export function createScanner(
   let token = Token.None;
   let tokenPosition = -1;
   let tokenFlags = TokenFlags.None;
+  let isLookingAhead = false;
+
+  let lookaheadCache = [] as CachedToken[];
+
   // Skip BOM
   if (position < endPosition && input.charCodeAt(position) === CharCode.ByteOrderMark) {
     position++;
@@ -380,13 +408,40 @@ export function createScanner(
       return tokenFlags;
     },
     file,
-    scan,
+    scan: _scan,
     scanRange,
     scanDoc,
     eof,
     getTokenText,
     getTokenValue,
+    lookahead
   };
+
+  function saveState(saveCache: boolean): ScannerState {
+    return {
+      position,
+      endPosition,
+      token,
+      tokenPosition,
+      tokenFlags,
+      isLookingAhead,
+      lookaheadCache: saveCache ? lookaheadCache : undefined,
+    };
+  }
+
+  function restoreState(state: ScannerState) {
+    position = state.position;
+    endPosition = state.endPosition;
+    token = state.token;
+    tokenPosition = state.tokenPosition;
+    tokenFlags = state.tokenFlags;
+    isLookingAhead = state.isLookingAhead;
+
+    if (state.lookaheadCache !== undefined) {
+      lookaheadCache = state.lookaheadCache;
+    }
+
+  }
 
   function eof() {
     return position >= endPosition;
@@ -407,12 +462,43 @@ export function createScanner(
     }
   }
 
-  function lookAhead(offset: number) {
+  function lookahead<T>(h: () => T): T {
+    const state = saveState(false);
+
+    const result = h();
+
+    restoreState(state);
+
+    return result;
+  }
+
+  function peekCharCode(offset: number) {
     const p = position + offset;
     if (p >= endPosition) {
       return Number.NaN;
     }
     return input.charCodeAt(p);
+  }
+
+  function _scan(): Token {
+    const cached = lookaheadCache[position];
+
+    if (cached) {
+      if (!isLookingAhead) {
+        delete lookaheadCache[position];
+      }
+
+      position = cached.positionAfterScan;
+      return (token = cached.token);
+
+    } else {
+      const pos = position;
+      const token = scan();
+      if (isLookingAhead) {
+        lookaheadCache[pos] = { token, positionAfterScan: position };
+      }
+      return token;
+    }
   }
 
   function scan(): Token {
@@ -423,7 +509,7 @@ export function createScanner(
       const ch = input.charCodeAt(position);
       switch (ch) {
         case CharCode.CarriageReturn:
-          if (lookAhead(1) === CharCode.LineFeed) {
+          if (peekCharCode(1) === CharCode.LineFeed) {
             position++;
           }
         // fallthrough
@@ -446,7 +532,7 @@ export function createScanner(
           return next(Token.Comma);
 
         case CharCode.Colon:
-          return lookAhead(1) === CharCode.Colon ? next(Token.ColonColon, 2) : next(Token.Colon);
+          return peekCharCode(1) === CharCode.Colon ? next(Token.ColonColon, 2) : next(Token.Colon);
 
         case CharCode.Semicolon:
           return next(Token.Semicolon);
@@ -464,16 +550,16 @@ export function createScanner(
           return next(Token.CloseBrace);
 
         case CharCode.At:
-          return lookAhead(1) === CharCode.At ? next(Token.AtAt, 2) : next(Token.At);
+          return peekCharCode(1) === CharCode.At ? next(Token.AtAt, 2) : next(Token.At);
 
         case CharCode.Hash:
           return next(Token.Hash);
 
         case CharCode.Plus:
-          return isDigit(lookAhead(1)) ? scanSignedNumber() : next(Token.Plus);
+          return isDigit(peekCharCode(1)) ? scanSignedNumber() : next(Token.Plus);
 
         case CharCode.Minus:
-          return isDigit(lookAhead(1)) ? scanSignedNumber() : next(Token.Hyphen);
+          return isDigit(peekCharCode(1)) ? scanSignedNumber() : next(Token.Hyphen);
 
         case CharCode.Asterisk:
           return next(Token.Star);
@@ -482,17 +568,17 @@ export function createScanner(
           return next(Token.Question);
 
         case CharCode.Ampersand:
-          return lookAhead(1) === CharCode.Ampersand
+          return peekCharCode(1) === CharCode.Ampersand
             ? next(Token.AmpsersandAmpersand, 2)
             : next(Token.Ampersand);
 
         case CharCode.Dot:
-          return lookAhead(1) === CharCode.Dot && lookAhead(2) === CharCode.Dot
+          return peekCharCode(1) === CharCode.Dot && peekCharCode(2) === CharCode.Dot
             ? next(Token.Ellipsis, 3)
             : next(Token.Dot);
 
         case CharCode.Slash:
-          switch (lookAhead(1)) {
+          switch (peekCharCode(1)) {
             case CharCode.Slash:
               return scanSingleLineComment();
             case CharCode.Asterisk:
@@ -502,7 +588,7 @@ export function createScanner(
           return next(Token.ForwardSlash);
 
         case CharCode._0:
-          switch (lookAhead(1)) {
+          switch (peekCharCode(1)) {
             case CharCode.x:
               return scanHexNumber();
             case CharCode.b:
@@ -522,19 +608,19 @@ export function createScanner(
 
         case CharCode.LessThan:
           if (atConflictMarker()) return scanConflictMarker();
-          return lookAhead(1) === CharCode.Equals
+          return peekCharCode(1) === CharCode.Equals
             ? next(Token.LessThanEquals, 2)
             : next(Token.LessThan);
 
         case CharCode.GreaterThan:
           if (atConflictMarker()) return scanConflictMarker();
-          return lookAhead(1) === CharCode.Equals
+          return peekCharCode(1) === CharCode.Equals
             ? next(Token.GreaterThanEquals, 2)
             : next(Token.GreaterThan);
 
         case CharCode.Equals:
           if (atConflictMarker()) return scanConflictMarker();
-          switch (lookAhead(1)) {
+          switch (peekCharCode(1)) {
             case CharCode.Equals:
               return next(Token.EqualsEquals, 2);
             case CharCode.GreaterThan:
@@ -544,15 +630,15 @@ export function createScanner(
 
         case CharCode.Bar:
           if (atConflictMarker()) return scanConflictMarker();
-          return lookAhead(1) === CharCode.Bar ? next(Token.BarBar, 2) : next(Token.Bar);
+          return peekCharCode(1) === CharCode.Bar ? next(Token.BarBar, 2) : next(Token.Bar);
 
         case CharCode.DoubleQuote:
-          return lookAhead(1) === CharCode.DoubleQuote && lookAhead(2) === CharCode.DoubleQuote
+          return peekCharCode(1) === CharCode.DoubleQuote && peekCharCode(2) === CharCode.DoubleQuote
             ? scanTripleQuotedString()
             : scanString();
 
         case CharCode.Exclamation:
-          return lookAhead(1) === CharCode.Equals
+          return peekCharCode(1) === CharCode.Equals
             ? next(Token.ExclamationEquals, 2)
             : next(Token.Exclamation);
 
@@ -584,7 +670,7 @@ export function createScanner(
       const ch = input.charCodeAt(position);
       switch (ch) {
         case CharCode.CarriageReturn:
-          if (lookAhead(1) === CharCode.LineFeed) {
+          if (peekCharCode(1) === CharCode.LineFeed) {
             position++;
           }
         // fallthrough
@@ -607,7 +693,7 @@ export function createScanner(
           return next(Token.Star);
 
         case CharCode.Backtick:
-          return lookAhead(1) === CharCode.Backtick && lookAhead(2) === CharCode.Backtick
+          return peekCharCode(1) === CharCode.Backtick && peekCharCode(2) === CharCode.Backtick
             ? next(Token.DocCodeFenceDelimiter, 3)
             : scanDocCodeSpan();
 
@@ -639,25 +725,19 @@ export function createScanner(
   }
 
   function scanRange<T>(range: TextRange, callback: () => T): T {
-    const savedPosition = position;
-    const savedEndPosition = endPosition;
-    const savedToken = token;
-    const savedTokenPosition = tokenPosition;
-    const savedTokenFlags = tokenFlags;
+    const state = saveState(/* saveCache */ true);
 
     position = range.pos;
     endPosition = range.end;
     token = Token.None;
     tokenPosition = -1;
     tokenFlags = TokenFlags.None;
+    isLookingAhead = false;
+    lookaheadCache = [];
 
     const result = callback();
 
-    position = savedPosition;
-    endPosition = savedEndPosition;
-    token = savedToken;
-    tokenPosition = savedTokenPosition;
-    tokenFlags = savedTokenFlags;
+    restoreState(state);
 
     return result;
   }
@@ -790,7 +870,7 @@ export function createScanner(
 
   function scanMultiLineComment(): Token.MultiLineComment {
     token = Token.MultiLineComment;
-    if (lookAhead(2) === CharCode.Asterisk) {
+    if (peekCharCode(2) === CharCode.Asterisk) {
       tokenFlags |= TokenFlags.DocComment;
     }
     const [newPosition, terminated] = skipMultiLineComment(input, position);
@@ -848,8 +928,8 @@ export function createScanner(
     for (; !eof(); position++) {
       if (
         input.charCodeAt(position) === CharCode.DoubleQuote &&
-        lookAhead(1) === CharCode.DoubleQuote &&
-        lookAhead(2) === CharCode.DoubleQuote
+        peekCharCode(1) === CharCode.DoubleQuote &&
+        peekCharCode(2) === CharCode.DoubleQuote
       ) {
         position += 3;
         return (token = Token.StringLiteral);

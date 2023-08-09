@@ -183,6 +183,16 @@ describe("compiler: parser", () => {
     ]);
   });
 
+  describe("op statements", () => {
+    parseEach([
+      "op foo(): int32;",
+      "op foo(bar: string): int32;",
+      "op foo(bar: string, baz: int32): int32;",
+      "op foo(M): int32;",
+      "op foo is bar;"
+    ])
+  });
+
   describe("model expressions", () => {
     parseEach(['model Car { engine: { type: "v8" } }']);
   });

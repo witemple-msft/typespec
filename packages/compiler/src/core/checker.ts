@@ -1672,7 +1672,43 @@ export function createChecker(program: Program): Checker {
       // Copy decorators from the base operation, inserting the base decorators first
       decorators = [...baseOperation.decorators];
     } else {
-      parameters = getTypeForNode(node.signature.parameters, mapper) as Model;
+      const operationParametersType = getTypeForNode(node.signature.parameters, mapper);
+
+      if (operationParametersType.kind !== "Model") {
+
+        // We don't want to double-report, so if we got an ErrorType looking up
+        // the parameters above, we won't _also_ report an invalid-type-ref. We
+        // also won't report if the type is a template parameter, since it will
+        // be filled later.
+        if (
+          operationParametersType.kind !== "TemplateParameter" &&
+          !isErrorType(operationParametersType)
+        ) {
+          reportCheckerDiagnostic(createDiagnostic({
+            code: "invalid-type-ref",
+            messageId: "operation-parameters",
+            target: node.signature.parameters,
+            format: {
+              kind: operationParametersType.kind.toLowerCase(),
+            }
+          }));
+        }
+
+        // In case of an error, we'll synthesize an empty model as if the user
+        // wrote `op foo();` instead of `op foo(bad);`
+        parameters = createType({
+          kind: "Model",
+          name: "",
+          properties: createRekeyableMap(),
+          indexer: undefined,
+          namespace: getParentNamespaceType(node),
+          decorators: [],
+          derivedModels: [],
+        });
+      } else {
+        parameters = operationParametersType;
+      }
+
       returnType = getTypeForNode(node.signature.returnType, mapper);
     }
 

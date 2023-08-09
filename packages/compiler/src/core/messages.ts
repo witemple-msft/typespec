@@ -264,6 +264,7 @@ const diagnostics = {
       default: "Invalid type reference",
       decorator: "Can't put a decorator in a type",
       function: "Can't use a function as a type",
+      "operation-parameters": paramMessage`operation parameters refer to a ${"kind"} type, but must be a model`,
     },
   },
   "invalid-template-args": {

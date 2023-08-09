@@ -1093,7 +1093,7 @@ export interface UsingStatementNode extends BaseNode {
 
 export interface OperationSignatureDeclarationNode extends BaseNode {
   readonly kind: SyntaxKind.OperationSignatureDeclaration;
-  readonly parameters: ModelExpressionNode;
+  readonly parameters: ModelExpressionNode | TypeReferenceNode;
   readonly returnType: Expression;
 }
 
