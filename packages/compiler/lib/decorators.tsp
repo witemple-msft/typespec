@@ -148,15 +148,22 @@ extern dec format(target: string | bytes | ModelProperty, format: valueof string
  * The following syntax is allowed: alternations (`|`), quantifiers (`?`, `*`, `+`, and `{ }`), wildcard (`.`), and grouping parentheses.
  * Advanced features like look-around, capture groups, and references are not supported.
  *
+ * Optionally, a description can be provided to describe what the pattern validates.
+ *
  * @param pattern Regular expression.
+ * @param description Optional description of the pattern.
  *
  * @example
  * ```typespec
- * @pattern("[a-z]+")
+ * @pattern("[a-z]+", "should consist of only lowercase alphanumeric characters")
  * scalar LowerAlpha extends string;
  * ```
  */
-extern dec pattern(target: string | bytes | ModelProperty, pattern: valueof string);
+extern dec pattern(
+  target: string | bytes | ModelProperty,
+  pattern: valueof string,
+  description?: valueof string
+);
 
 /**
  * Specify the minimum length this string type should be.
