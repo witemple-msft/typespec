@@ -1121,4 +1121,23 @@ describe("compiler: models", () => {
       });
     });
   });
+
+  describe.only("default-optional models", () => {
+    it("allows a default-optional model", async () => {
+      testHost.addTypeSpecFile(
+        "main.tsp",
+        `
+        @test model A? { a: int32; b!: string; }
+        `
+      );
+
+      const { A } = (await testHost.compile("main.tsp")) as { A: Model };
+
+      const a = A.properties.get("a")!;
+      const b = A.properties.get("b")!;
+
+      strictEqual(a.optional, true);
+      strictEqual(b.optional, false);
+    });
+  });
 });

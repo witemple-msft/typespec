@@ -62,6 +62,7 @@ import {
   ModelExpressionNode,
   ModelPropertyNode,
   ModelPropertyOptionality,
+  ModelPropertyOptionalityNode,
   ModelSpreadPropertyNode,
   ModelStatementNode,
   Modifier,
@@ -1069,7 +1070,7 @@ function createParser(code: string | SourceFile, options: ParseOptions = {}): Pa
       allowStringLiteral: true,
     });
 
-    const optionality = parseModelPropertyOptionality(tokenPos());
+    const optionality = parseModelPropertyOptionalityNode(tokenPos());
     parseExpected(Token.Colon);
     const value = parseExpression();
 
@@ -1086,7 +1087,15 @@ function createParser(code: string | SourceFile, options: ParseOptions = {}): Pa
     };
   }
 
-  function parseModelPropertyOptionality(pos: number): ModelPropertyOptionality {
+  function parseModelPropertyOptionalityNode(pos: number): ModelPropertyOptionalityNode {
+    return {
+      kind: SyntaxKind.ModelPropertyOptionality,
+      value: parseModelPropertyOptionality(),
+      ...finishNode(pos),
+    };
+  }
+
+  function parseModelPropertyOptionality(): ModelPropertyOptionality {
     switch (token()) {
       case Token.Question:
         nextToken();
@@ -3636,7 +3645,8 @@ export function visitChildren<T>(node: Node, cb: NodeCallback<T>): T | undefined
         visitEach(cb, node.decorators) ||
         visitNode(cb, node.id) ||
         visitNode(cb, node.value) ||
-        visitNode(cb, node.default)
+        visitNode(cb, node.default) ||
+        visitNode(cb, node.optionality)
       );
     case SyntaxKind.ModelSpreadProperty:
       return visitNode(cb, node.target);
@@ -3827,6 +3837,7 @@ export function visitChildren<T>(node: Node, cb: NodeCallback<T>): T | undefined
     case SyntaxKind.JsSourceFile:
     case SyntaxKind.JsNamespaceDeclaration:
     case SyntaxKind.DocText:
+    case SyntaxKind.ModelPropertyOptionality:
       return;
 
     default:

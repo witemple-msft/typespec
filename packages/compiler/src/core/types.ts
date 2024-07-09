@@ -995,6 +995,7 @@ export enum SyntaxKind {
   ConstStatement,
   CallExpression,
   ScalarConstructor,
+  ModelPropertyOptionality,
 }
 
 export const enum NodeFlags {
@@ -1092,6 +1093,7 @@ export type Node =
   | ProjectionParameterDeclarationNode
   | ProjectionLambdaParameterDeclarationNode
   | ModelPropertyNode
+  | ModelPropertyOptionalityNode
   | UnionVariantNode
   | OperationStatementNode
   | OperationSignatureDeclarationNode
@@ -1500,9 +1502,15 @@ export interface ModelPropertyNode extends BaseNode {
   readonly id: IdentifierNode;
   readonly value: Expression;
   readonly decorators: readonly DecoratorExpressionNode[];
-  readonly optionality: ModelPropertyOptionality;
+  readonly optionality: ModelPropertyOptionalityNode;
   readonly default?: Expression;
   readonly parent?: ModelStatementNode | ModelExpressionNode;
+}
+
+export interface ModelPropertyOptionalityNode extends BaseNode {
+  readonly kind: SyntaxKind.ModelPropertyOptionality;
+  readonly value: ModelPropertyOptionality;
+  readonly parent?: ModelPropertyNode;
 }
 
 export enum ModelPropertyOptionality {

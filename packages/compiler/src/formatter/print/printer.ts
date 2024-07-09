@@ -422,13 +422,10 @@ export function printNode(
     case SyntaxKind.JsSourceFile:
     case SyntaxKind.JsNamespaceDeclaration:
     case SyntaxKind.InvalidStatement:
+    case SyntaxKind.ModelPropertyOptionality:
       return getRawText(node, options);
     default:
-      // Dummy const to ensure we handle all node types.
-      // If you get an error here, add a case for the new node type
-      // you added..
-      const _assertNever: never = node;
-      return getRawText(node, options);
+      return getRawText(node satisfies never, options);
   }
 }
 
@@ -1265,7 +1262,7 @@ export function printModelProperty(
   if (node.kind === SyntaxKind.ProjectionModelProperty) {
     nameTypeInfix = node.optional ? "?: " : ": ";
   } else {
-    switch (node.optionality) {
+    switch (node.optionality.value) {
       case ModelPropertyOptionality.Default:
         nameTypeInfix = ": ";
         break;

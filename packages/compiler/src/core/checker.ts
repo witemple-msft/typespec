@@ -8,6 +8,7 @@ import { getDeprecationDetails, markDeprecated } from "./deprecation.js";
 import {
   ProjectionError,
   compilerAssert,
+  getSourceLocation,
   ignoreDiagnostics,
   reportDeprecated,
 } from "./diagnostics.js";
@@ -661,19 +662,13 @@ export function createChecker(program: Program): Checker {
     const memberContainer = getTypeForNode(sym.parent!.declarations[0], mapper);
     const type = symbolLinks.declaredType ?? symbolLinks.type;
 
-    const isDefaultOptional =
-      memberContainer.kind === "Model" &&
-      memberContainer.node?.kind === SyntaxKind.ModelStatement &&
-      memberContainer.node.isDefaultOptional;
-
     if (type) {
       return type;
     } else {
       return checkMember(
         sym.declarations[0] as MemberNode,
         mapper,
-        memberContainer as MemberContainerType,
-        isDefaultOptional
+        memberContainer as MemberContainerType
       )!;
     }
   }
@@ -688,12 +683,11 @@ export function createChecker(program: Program): Checker {
   function checkMember(
     node: MemberNode,
     mapper: TypeMapper | undefined,
-    containerType: MemberContainerType,
-    isDefaultOptional: boolean
+    containerType: MemberContainerType
   ): Type {
     switch (node.kind) {
       case SyntaxKind.ModelProperty:
-        return checkModelProperty(node, mapper, isDefaultOptional);
+        return checkModelProperty(node, mapper);
       case SyntaxKind.EnumMember:
         return checkEnumMember(node, mapper, containerType as Enum);
       case SyntaxKind.OperationStatement:
@@ -1048,7 +1042,7 @@ export function createChecker(program: Program): Checker {
       case SyntaxKind.ModelStatement:
         return checkModel(node, mapper);
       case SyntaxKind.ModelProperty:
-        return checkModelProperty(node, mapper, /* isDefaultOptional */ false);
+        return checkModelProperty(node, mapper);
       case SyntaxKind.ScalarStatement:
         return checkScalar(node, mapper);
       case SyntaxKind.AliasStatement:
@@ -3911,7 +3905,7 @@ export function createChecker(program: Program): Checker {
     }
 
     // Evaluate the properties after
-    checkModelProperties(node, type.properties, type, mapper, node.isDefaultOptional);
+    checkModelProperties(node, type.properties, type, mapper);
 
     linkMapper(type, mapper);
 
@@ -3966,7 +3960,7 @@ export function createChecker(program: Program): Checker {
       derivedModels: [],
       sourceModels: [],
     });
-    checkModelProperties(node, properties, type, mapper, false);
+    checkModelProperties(node, properties, type, mapper);
     return finishType(type);
   }
 
@@ -4028,13 +4022,12 @@ export function createChecker(program: Program): Checker {
     node: ModelExpressionNode | ModelStatementNode,
     properties: Map<string, ModelProperty>,
     parentModel: Model,
-    mapper: TypeMapper | undefined,
-    isDefaultOptional: boolean
+    mapper: TypeMapper | undefined
   ) {
     let spreadIndexers: ModelIndexer[] | undefined;
     for (const prop of node.properties!) {
       if ("id" in prop) {
-        const newProp = checkModelProperty(prop, mapper, isDefaultOptional);
+        const newProp = checkModelProperty(prop, mapper);
         newProp.model = parentModel;
         checkPropertyCompatibleWithModelIndexer(parentModel, newProp, prop);
         defineProperty(properties, newProp);
@@ -5147,8 +5140,7 @@ export function createChecker(program: Program): Checker {
 
   function checkModelProperty(
     prop: ModelPropertyNode,
-    mapper: TypeMapper | undefined,
-    isDefaultOptional: boolean
+    mapper: TypeMapper | undefined
   ): ModelProperty {
     const sym = getSymbolForMember(prop)!;
     const symId = getSymbolId(sym);
@@ -5159,21 +5151,35 @@ export function createChecker(program: Program): Checker {
     }
     const name = prop.id.sv;
 
+    const isDefaultOptional =
+      prop.parent?.kind === SyntaxKind.ModelStatement ? prop.parent.isDefaultOptional : false;
+
+    const optionality = prop.optionality.value;
+
     const optional =
-      prop.optionality === ModelPropertyOptionality.Optional ||
-      (isDefaultOptional && prop.optionality === ModelPropertyOptionality.Default);
+      optionality === ModelPropertyOptionality.Optional ||
+      (isDefaultOptional && optionality === ModelPropertyOptionality.Default);
 
     // Warning in case the optionality is redundant.
     if (
-      (prop.optionality === ModelPropertyOptionality.Required && !isDefaultOptional) ||
-      (prop.optionality === ModelPropertyOptionality.Optional && isDefaultOptional)
+      (optionality === ModelPropertyOptionality.Required && !isDefaultOptional) ||
+      (optionality === ModelPropertyOptionality.Optional && isDefaultOptional)
     ) {
-      const sigil = prop.optionality === ModelPropertyOptionality.Required ? "!" : "?";
+      const sigil = optionality === ModelPropertyOptionality.Required ? "!" : "?";
       reportCheckerDiagnostic({
         severity: "warning",
         code: "unnecessary-property-optionality",
         message: `Property '${name}' has optionality specifier '${sigil}', but it is already implied.`,
-        target: prop,
+        target: prop.optionality,
+        codefixes: [
+          {
+            id: "remove-optionality",
+            label: `Remove redundant optionality specifier '${sigil}'`,
+            fix(ctx) {
+              return ctx.replaceText(getSourceLocation(prop.optionality), "");
+            },
+          },
+        ],
       });
     }
 
