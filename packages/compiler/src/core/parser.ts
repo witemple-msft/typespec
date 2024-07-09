@@ -61,6 +61,7 @@ import {
   MemberExpressionNode,
   ModelExpressionNode,
   ModelPropertyNode,
+  ModelPropertyOptionality,
   ModelSpreadPropertyNode,
   ModelStatementNode,
   Modifier,
@@ -923,6 +924,13 @@ function createParser(code: string | SourceFile, options: ParseOptions = {}): Pa
   ): ModelStatementNode {
     parseExpected(Token.ModelKeyword);
     const id = parseIdentifier();
+
+    const isDefaultOptional = token() === Token.Question;
+
+    if (isDefaultOptional) {
+      nextToken();
+    }
+
     const { items: templateParameters, range: templateParametersRange } =
       parseTemplateParameterList();
 
@@ -955,6 +963,7 @@ function createParser(code: string | SourceFile, options: ParseOptions = {}): Pa
       decorators,
       properties: propDetail.items,
       bodyRange: propDetail.range,
+      isDefaultOptional,
       ...finishNode(pos),
     };
   }
@@ -1060,7 +1069,7 @@ function createParser(code: string | SourceFile, options: ParseOptions = {}): Pa
       allowStringLiteral: true,
     });
 
-    const optional = parseOptional(Token.Question);
+    const optionality = parseModelPropertyOptionality(tokenPos());
     parseExpected(Token.Colon);
     const value = parseExpression();
 
@@ -1071,10 +1080,23 @@ function createParser(code: string | SourceFile, options: ParseOptions = {}): Pa
       id,
       decorators,
       value,
-      optional,
+      optionality,
       default: defaultValue,
       ...finishNode(pos),
     };
+  }
+
+  function parseModelPropertyOptionality(pos: number): ModelPropertyOptionality {
+    switch (token()) {
+      case Token.Question:
+        nextToken();
+        return ModelPropertyOptionality.Optional;
+      case Token.Exclamation:
+        nextToken();
+        return ModelPropertyOptionality.Required;
+      default:
+        return ModelPropertyOptionality.Default;
+    }
   }
 
   function parseObjectLiteralPropertyOrSpread(

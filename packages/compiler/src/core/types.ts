@@ -1390,6 +1390,7 @@ export interface ModelStatementNode extends BaseNode, DeclarationNode, TemplateD
   readonly is?: Expression;
   readonly decorators: readonly DecoratorExpressionNode[];
   readonly parent?: TypeSpecScriptNode | NamespaceStatementNode;
+  readonly isDefaultOptional: boolean;
 }
 
 export interface ScalarStatementNode extends BaseNode, DeclarationNode, TemplateDeclarationNode {
@@ -1499,9 +1500,15 @@ export interface ModelPropertyNode extends BaseNode {
   readonly id: IdentifierNode;
   readonly value: Expression;
   readonly decorators: readonly DecoratorExpressionNode[];
-  readonly optional: boolean;
+  readonly optionality: ModelPropertyOptionality;
   readonly default?: Expression;
   readonly parent?: ModelStatementNode | ModelExpressionNode;
+}
+
+export enum ModelPropertyOptionality {
+  Default,
+  Required,
+  Optional,
 }
 
 export interface ModelSpreadPropertyNode extends BaseNode {

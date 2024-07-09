@@ -34,6 +34,7 @@ import {
   MemberExpressionNode,
   ModelExpressionNode,
   ModelPropertyNode,
+  ModelPropertyOptionality,
   ModelSpreadPropertyNode,
   ModelStatementNode,
   Node,
@@ -1259,11 +1260,29 @@ export function printModelProperty(
     tryInline: DecoratorsTryInline.modelProperty,
   });
   const id = printIdentifier(node.id, options);
+
+  let nameTypeInfix: string;
+  if (node.kind === SyntaxKind.ProjectionModelProperty) {
+    nameTypeInfix = node.optional ? "?: " : ": ";
+  } else {
+    switch (node.optionality) {
+      case ModelPropertyOptionality.Default:
+        nameTypeInfix = ": ";
+        break;
+      case ModelPropertyOptionality.Required:
+        nameTypeInfix = "!: ";
+        break;
+      case ModelPropertyOptionality.Optional:
+        nameTypeInfix = "?: ";
+        break;
+    }
+  }
+
   return [
     printDirectives(path, options, print),
     decorators,
     id,
-    node.optional ? "?: " : ": ",
+    nameTypeInfix,
     path.call(print, "value"),
     node.default ? [" = ", path.call(print, "default")] : "",
   ];
