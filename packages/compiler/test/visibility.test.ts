@@ -4,6 +4,8 @@
 import { deepStrictEqual, ok, strictEqual } from "assert";
 import { beforeEach, describe, it } from "vitest";
 import { getVisibility, VisibilityFilter } from "../src/core/visibility/core.js";
+import { Lifecycle } from "../src/core/visibility/lifecycle.js";
+import { $ } from "../src/experimental/typekit/index.js";
 import {
   $visibility,
   addVisibilityModifiers,
@@ -209,17 +211,17 @@ describe("compiler: visibility core", () => {
 
       const x = Example.properties.get("x")!;
 
-      const Lifecycle = getLifecycleVisibilityEnum(runner.program);
-      const Create = Lifecycle.members.get("Create")!;
-
-      addVisibilityModifiers(runner.program, x, [Create]);
+      addVisibilityModifiers(runner.program, x, [
+        $(runner.program).proxy.resolve(Lifecycle.Create),
+      ]);
 
       const visibility = getVisibilityForClass(runner.program, x, Lifecycle);
 
       strictEqual(visibility.size, 1);
 
-      for (const member of Lifecycle.members.values()) {
-        if (member !== Create) {
+      // TODO: support iterating over Lifecycle proxy
+      for (const member of [Lifecycle.Create, Lifecycle.Read, Lifecycle.Update]) {
+        if (member !== Lifecycle.Create) {
           ok(!visibility.has(member));
           ok(!hasVisibility(runner.program, x, member));
         } else {
@@ -336,7 +338,7 @@ describe("compiler: visibility core", () => {
   });
 
   describe("visibility filters", () => {
-    type LifecycleVisibilityName = "Create" | "Read" | "Update";
+    type LifecycleVisibilityName = Extract<keyof typeof Lifecycle, string>;
     interface VisibilityFilterScenario {
       name: string;
       expect: boolean;
@@ -481,14 +483,12 @@ describe("compiler: visibility core", () => {
         `)) as { Example: Model };
 
         const x = Example.properties.get("x")!;
-        const Lifecycle = getLifecycleVisibilityEnum(runner.program);
 
-        const filter = Object.fromEntries(
-          Object.entries(scenario.filter).map(([k, vis]) => [
-            k,
-            new Set((vis as LifecycleVisibilityName[]).map((v) => Lifecycle.members.get(v)!)),
-          ]),
-        ) as VisibilityFilter;
+        const filter: VisibilityFilter = {
+          all: scenario.filter.all?.map((v) => Lifecycle[v]),
+          any: scenario.filter.any?.map((v) => Lifecycle[v]),
+          none: scenario.filter.none?.map((v) => Lifecycle[v]),
+        };
 
         strictEqual(isVisible(runner.program, x, filter), scenario.expect);
       });

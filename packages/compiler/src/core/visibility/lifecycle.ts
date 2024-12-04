@@ -1,9 +1,19 @@
 // Copyright (c) Microsoft Corporation
 // Licensed under the MIT license.
 
+import { createTypeProxy, TypeProxy } from "../../experimental/proxy.js";
 import { compilerAssert } from "../diagnostics.js";
 import type { Program } from "../program.js";
 import type { Enum, EnumMember } from "../types.js";
+
+export const Lifecycle = createTypeProxy<
+  {
+    Create: TypeProxy<EnumMember>;
+    Read: TypeProxy<EnumMember>;
+    Update: TypeProxy<EnumMember>;
+  },
+  "Enum"
+>("Enum", "TypeSpec.Lifecycle");
 
 /**
  * A cache for the `TypeSpec.Visibility.Lifecycle` enum per Program instance.

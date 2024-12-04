@@ -404,7 +404,7 @@ export const $withVisibilityFilter: WithVisibilityFilterDecorator = (
 ) => {
   const filter = VisibilityFilter.fromDecoratorArgument(_filter);
 
-  const vfMutator: Mutator = createVisibilityFilterMutator(filter, {
+  const vfMutator: Mutator = createVisibilityFilterMutator(context.program, filter, {
     decoratorFn: $withVisibilityFilter,
   });
 
@@ -428,9 +428,12 @@ export const $withLifecycleUpdate: WithLifecycleUpdateDecorator = (
     any: new Set([lifecycle.members.get("Create")!, lifecycle.members.get("Update")!]),
   };
 
-  const createOrUpdateMutator = createVisibilityFilterMutator(lifecycleCreateOrUpdate);
+  const createOrUpdateMutator = createVisibilityFilterMutator(
+    context.program,
+    lifecycleCreateOrUpdate,
+  );
 
-  const updateMutator = createVisibilityFilterMutator(lifecycleUpdate, {
+  const updateMutator = createVisibilityFilterMutator(context.program, lifecycleUpdate, {
     recur: createOrUpdateMutator,
     decoratorFn: $withLifecycleUpdate,
   });
@@ -467,10 +470,11 @@ interface CreateVisibilityFilterMutatorOptions {
  * @returns
  */
 function createVisibilityFilterMutator(
+  program: Program,
   filter: VisibilityFilter,
   options: CreateVisibilityFilterMutatorOptions = {},
 ): Mutator {
-  const visibilityClasses = VisibilityFilter.getVisibilityClasses(filter);
+  const visibilityClasses = VisibilityFilter.getVisibilityClasses(program, filter);
   const mpMutator: Mutator = {
     name: "VisibilityFilterProperty",
     ModelProperty: {

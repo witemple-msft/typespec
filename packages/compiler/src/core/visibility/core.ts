@@ -29,6 +29,8 @@ import {
 } from "./lifecycle.js";
 
 import type { VisibilityFilter as GeneratedVisibilityFilter } from "../../../generated-defs/TypeSpec.js";
+import { Proxiable, ProxySet } from "../../experimental/proxy.js";
+import { $ } from "../../experimental/typekit/index.js";
 import { useStateMap, useStateSet } from "../../lib/utils.js";
 
 export { GeneratedVisibilityFilter };
@@ -36,7 +38,7 @@ export { GeneratedVisibilityFilter };
 /**
  * A set of active visibility modifiers per visibility class.
  */
-type VisibilityModifiers = Map<Enum, Set<EnumMember>>;
+type VisibilityModifiers = Map<Enum, ProxySet<EnumMember>>;
 
 /**
  * The global visibility store.
@@ -80,8 +82,8 @@ function getOrInitializeActiveModifierSetForClass(
   program: Program,
   property: ModelProperty,
   visibilityClass: Enum,
-  defaultSet: Set<EnumMember>,
-): Set<EnumMember> {
+  defaultSet: ProxySet<EnumMember>,
+): ProxySet<EnumMember> {
   const visibilityModifiers = getOrInitializeVisibilityModifiers(program, property);
   let visibilityModifierSet = visibilityModifiers.get(visibilityClass);
 
@@ -132,7 +134,7 @@ function sealVisibilityModifiersForClass(
 /**
  * Stores the default modifier set for a given visibility class.
  */
-const [getDefaultModifiers, setDefaultModifiers] = useStateMap<Enum, Set<EnumMember>>(
+const [getDefaultModifiers, setDefaultModifiers] = useStateMap<Enum, ProxySet<EnumMember>>(
   "defaultVisibilityModifiers",
 );
 
@@ -144,12 +146,15 @@ const [getDefaultModifiers, setDefaultModifiers] = useStateMap<Enum, Set<EnumMem
  * @param visibilityClass - the visibility class to get the default modifier set for
  * @returns the default modifier set for the visibility class
  */
-function getDefaultModifierSetForClass(program: Program, visibilityClass: Enum): Set<EnumMember> {
+function getDefaultModifierSetForClass(
+  program: Program,
+  visibilityClass: Enum,
+): ProxySet<EnumMember> {
   const cached = getDefaultModifiers(program, visibilityClass);
 
   if (cached) return cached;
 
-  const defaultModifierSet = new Set<EnumMember>(visibilityClass.members.values());
+  const defaultModifierSet = new ProxySet<EnumMember>(program, visibilityClass.members.values());
 
   setDefaultModifiers(program, visibilityClass, defaultModifierSet);
 
@@ -164,15 +169,17 @@ function getDefaultModifierSetForClass(program: Program, visibilityClass: Enum):
  */
 export function setDefaultModifierSetForVisibilityClass(
   program: Program,
-  visibilityClass: Enum,
-  defaultSet: Set<EnumMember>,
+  visibilityClass: Proxiable<Enum>,
+  defaultSet: Iterable<EnumMember>,
 ) {
+  visibilityClass = $(program).proxy.resolve(visibilityClass);
+
   compilerAssert(
     !getDefaultModifiers(program, visibilityClass),
     "The default modifier set for a visibility class may only be set once.",
   );
 
-  setDefaultModifiers(program, visibilityClass, defaultSet);
+  setDefaultModifiers(program, visibilityClass, new ProxySet(program, defaultSet));
 }
 
 /**
@@ -399,7 +406,7 @@ export function addVisibilityModifiers(
       program,
       property,
       visibilityClass,
-      /* defaultSet: */ new Set(),
+      /* defaultSet: */ new ProxySet(program),
     );
 
     for (const modifier of newModifiers) {
@@ -473,9 +480,10 @@ export function removeVisibilityModifiers(
 export function clearVisibilityModifiersForClass(
   program: Program,
   property: ModelProperty,
-  visibilityClass: Enum,
+  visibilityClass: Proxiable<Enum>,
   context?: DecoratorContext,
 ) {
+  visibilityClass = $(program).proxy.resolve(visibilityClass);
   const target = context?.decoratorTarget ?? property;
   if (isSealed(program, property, visibilityClass)) {
     reportDiagnostic(program, {
@@ -492,7 +500,7 @@ export function clearVisibilityModifiersForClass(
     program,
     property,
     visibilityClass,
-    /* defaultSet: */ new Set(),
+    /* defaultSet: */ new ProxySet(program),
   );
 
   modifierSet.clear();
@@ -516,9 +524,11 @@ export function clearVisibilityModifiersForClass(
 export function resetVisibilityModifiersForClass(
   program: Program,
   property: ModelProperty,
-  visibilityClass: Enum,
+  visibilityClass: Proxiable<Enum>,
   context?: DecoratorContext,
 ) {
+  visibilityClass = $(program).proxy.resolve(visibilityClass);
+
   const target = context?.decoratorTarget ?? property;
 
   if (isSealed(program, property, visibilityClass)) {
@@ -553,8 +563,10 @@ export function resetVisibilityModifiersForClass(
 export function getVisibilityForClass(
   program: Program,
   property: ModelProperty,
-  visibilityClass: Enum,
-): Set<EnumMember> {
+  visibilityClass: Proxiable<Enum>,
+): ProxySet<EnumMember> {
+  visibilityClass = $(program).proxy.resolve(visibilityClass);
+
   return getOrInitializeActiveModifierSetForClass(
     program,
     property,
@@ -577,8 +589,10 @@ export function getVisibilityForClass(
 export function hasVisibility(
   program: Program,
   property: ModelProperty,
-  modifier: EnumMember,
+  modifier: Proxiable<EnumMember>,
 ): boolean {
+  modifier = $(program).proxy.resolve(modifier);
+
   const activeSet = getOrInitializeActiveModifierSetForClass(
     program,
     property,
@@ -608,15 +622,15 @@ export interface VisibilityFilter {
   /**
    * If set, the filter considers a property visible if it has ALL of these visibility modifiers.
    */
-  all?: Set<EnumMember>;
+  all?: Iterable<Proxiable<EnumMember>>;
   /**
    * If set, the filter considers a property visible if it has ANY of these visibility modifiers.
    */
-  any?: Set<EnumMember>;
+  any?: Iterable<Proxiable<EnumMember>>;
   /**
    * If set, the filter considers a property visible if it has NONE of these visibility modifiers.
    */
-  none?: Set<EnumMember>;
+  none?: Iterable<Proxiable<EnumMember>>;
 }
 
 export const VisibilityFilter = {
@@ -637,14 +651,16 @@ export const VisibilityFilter = {
    * Extracts the unique visibility classes referred to by the modifiers in a
    * visibility filter.
    *
+   * @param program - the program to use for resolving visibility classes
    * @param filter - the visibility filter to extract visibility classes from
    * @returns a set of visibility classes referred to by the filter
    */
-  getVisibilityClasses(filter: VisibilityFilter): Set<Enum> {
+  getVisibilityClasses(program: Program, filter: VisibilityFilter): Set<Enum> {
+    const tk = $(program);
     const classes = new Set<Enum>();
-    if (filter.all) filter.all.forEach((v) => classes.add(v.enum));
-    if (filter.any) filter.any.forEach((v) => classes.add(v.enum));
-    if (filter.none) filter.none.forEach((v) => classes.add(v.enum));
+    for (const v of filter.all ?? []) classes.add(tk.proxy.resolve(v).enum);
+    for (const v of filter.any ?? []) classes.add(tk.proxy.resolve(v).enum);
+    for (const v of filter.none ?? []) classes.add(tk.proxy.resolve(v).enum);
     return classes;
   },
 };
@@ -684,24 +700,21 @@ export function isVisible(
 export function isVisible(
   program: Program,
   property: ModelProperty,
-  _filterOrLegacyVisibilities: VisibilityFilter | readonly string[],
+  _filterOrLegacyVisibilities: Readonly<VisibilityFilter | readonly string[]>,
 ): boolean {
   if (Array.isArray(_filterOrLegacyVisibilities)) {
     return isVisibleLegacy(_filterOrLegacyVisibilities);
   }
 
-  const filter = { ...(_filterOrLegacyVisibilities as VisibilityFilter) };
-  filter.all ??= new Set();
-  filter.any ??= new Set();
-  filter.none ??= new Set();
+  const filter = _filterOrLegacyVisibilities as Readonly<VisibilityFilter>;
 
   // Validate that property has ALL of the required visibilities of filter.all
-  for (const modifier of filter.all) {
+  for (const modifier of filter.all ?? []) {
     if (!hasVisibility(program, property, modifier)) return false;
   }
 
   // Validate that property has ANY of the required visibilities of filter.any
-  outer: while (filter.any.size > 0) {
+  outer: while (filter.any) {
     for (const modifier of filter.any) {
       if (hasVisibility(program, property, modifier)) break outer;
     }
@@ -710,7 +723,7 @@ export function isVisible(
   }
 
   // Validate that property has NONE of the excluded visibilities of filter.none
-  for (const modifier of filter.none) {
+  for (const modifier of filter.none ?? []) {
     if (hasVisibility(program, property, modifier)) return false;
   }
 

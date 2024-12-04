@@ -13,3 +13,5 @@ export {
 export { Realm as unsafe_Realm } from "./realm.js";
 export { unsafe_useStateMap, unsafe_useStateSet } from "./state-accessor.js";
 export { $ as unsafe_$ } from "./typekit/index.js";
+
+export { Proxiable, TypeProxy } from "./proxy.js";
