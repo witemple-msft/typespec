@@ -218,7 +218,6 @@ export const $lib = createTypeSpecLibrary({
     includeInapplicableMetadataInPayload: {
       description: "State for the @includeInapplicableMetadataInPayload decorator",
     },
-
     // route.ts
     externalInterfaces: {},
     routeProducer: {},
@@ -229,6 +228,7 @@ export const $lib = createTypeSpecLibrary({
     // private
     file: { description: "State for the @Private.file decorator" },
     httpPart: { description: "State for the @Private.httpPart decorator" },
+    mergePatchModel: { description: "State marking mergePatch models " },
   },
 });
 
