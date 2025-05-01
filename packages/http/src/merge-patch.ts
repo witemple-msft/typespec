@@ -23,6 +23,7 @@ import {
 import {
   unsafe_$ as $,
   unsafe_isMutableType as isMutableType,
+  unsafe_MutableType as MutableType,
   unsafe_mutateSubgraph as mutateSubgraph,
   unsafe_Mutator as Mutator,
   unsafe_MutatorFlow as MutatorFlow,
@@ -34,6 +35,20 @@ import {
   ApplyMergePatchOptions,
 } from "../generated-defs/TypeSpec.Http.Private.js";
 import { reportDiagnostic } from "./lib.js";
+
+const MERGE_PATCH_MUTATORS = Symbol.for("TypeSpec.Http.MergePatchMutators");
+
+type MergePatchVisibilityMode = "Update" | "CreateOrUpdate";
+
+interface MergePatchMutatorCache {
+  [MERGE_PATCH_MUTATORS]?: Record<MergePatchVisibilityMode, Record<string, Mutator>>;
+}
+
+const MERGE_PATCH_MUTATOR_RESULT = Symbol.for("TypeSpec.Http.MergePatchMutatorResult");
+
+interface MergePatchMutatorResultCache {
+  [MERGE_PATCH_MUTATOR_RESULT]?: WeakMap<MutableType, ReturnType<typeof mutateSubgraph>>;
+}
 
 export const $applyMergePatch: ApplyMergePatchDecorator = (
   ctx: DecoratorContext,
@@ -59,14 +74,43 @@ export const $applyMergePatch: ApplyMergePatchDecorator = (
     { visitDerivedTypes: false, includeTemplateDeclaration: false },
   );
 
-  const mutated = mutateSubgraph(
-    ctx.program,
-    [createMergePatchMutator(ctx, nameTemplate, options)],
-    source,
-  );
+  const visibilityMode = (options.visibilityMode as EnumValue).value
+    .name as MergePatchVisibilityMode;
+
+  const mutatorCache = ((ctx.program as unknown as MergePatchMutatorCache)[MERGE_PATCH_MUTATORS] ??=
+    {
+      Update: {},
+      CreateOrUpdate: {},
+    });
+
+  const mutator = (mutatorCache[visibilityMode][nameTemplate] ??= createMergePatchMutator(
+    ctx,
+    nameTemplate,
+    visibilityMode,
+  ));
+
+  const mutated = cachedMutateSubgraph(ctx.program, mutator, source);
 
   target.properties = (mutated.type as Model).properties;
 };
+
+function cachedMutateSubgraph(
+  program: Program,
+  mutator: Mutator,
+  source: MutableType,
+): ReturnType<typeof mutateSubgraph> {
+  const mutatorCache = ((mutator as unknown as MergePatchMutatorResultCache)[
+    MERGE_PATCH_MUTATOR_RESULT
+  ] ??= new WeakMap());
+
+  const cached = mutatorCache.get(source);
+  if (cached) {
+    return cached;
+  }
+  const mutated = mutateSubgraph(program, [mutator], source);
+  mutatorCache.set(source, mutated);
+  return mutated;
+}
 
 function visibilityModeToFilters(
   program: Program,
@@ -101,12 +145,9 @@ function visibilityModeToFilters(
 function createMergePatchMutator(
   ctx: DecoratorContext,
   nameTemplate: string,
-  options: ApplyMergePatchOptions,
+  visibilityMode: MergePatchVisibilityMode,
 ): Mutator {
   const Lifecycle = getLifecycleVisibilityEnum(ctx.program);
-  const visibilityMode = (options.visibilityMode as EnumValue).value.name as
-    | "Update"
-    | "CreateOrUpdate";
 
   const [primaryFilter, optionalFilter, arrayFilter] = visibilityModeToFilters(
     ctx.program,
@@ -117,205 +158,6 @@ function createMergePatchMutator(
   const optionalMutator = bindMutator(optionalFilter, arrayMutator);
 
   return bindMutator(primaryFilter, arrayMutator, optionalMutator);
-
-  // const mpMutatorPrimary: Mutator = {
-  //   name: "MergePatchProperty",
-  //   ModelProperty: {
-  //     filter: () => MutatorFlow.DoNotRecur,
-  //     mutate: (prop, clone, program) => {
-  //       const decorators: DecoratorApplication[] = [];
-
-  //       for (const decorator of prop.decorators) {
-  //         const decFn = decorator.decorator;
-  //         if (decFn === $visibility || decFn === $removeVisibility) {
-  //           const nextArgs = decorator.args.filter((arg) => {
-  //             if (arg.value.entityKind !== "Value") return false;
-
-  //             const isOperativeVisibility =
-  //               arg.value.valueKind === "EnumValue" && arg.value.value.enum === Lifecycle;
-
-  //             return !isOperativeVisibility;
-  //           });
-
-  //           if (nextArgs.length > 0) {
-  //             decorators.push({
-  //               ...decorator,
-  //               args: nextArgs,
-  //             });
-  //           }
-  //         } else if (!(decFn === $invisible && decorator.args[0]?.value === Lifecycle)) {
-  //           decorators.push(decorator);
-  //         }
-  //       }
-
-  //       clone.decorators = decorators;
-
-  //       resetVisibilityModifiersForClass(program, clone, Lifecycle);
-
-  //       if (prop.type.kind === "Model") {
-  //         const mutated = clone.optional
-  //           ? mutateSubgraph(program, [innerMutator], prop)
-  //           : mutateSubgraph(program, [primaryMutator], prop);
-  //         clone.type = mutated.type;
-  //       }
-  //     },
-  //   },
-  // };
-
-  // const mpMutatorInner: Mutator = {
-  //   name: "MergePatchProperty",
-  //   ModelProperty: {
-  //     filter: () => MutatorFlow.DoNotRecur,
-  //     mutate: (prop, clone, program) => {
-  //       const decorators: DecoratorApplication[] = [];
-
-  //       for (const decorator of prop.decorators) {
-  //         const decFn = decorator.decorator;
-  //         if (decFn === $visibility || decFn === $removeVisibility) {
-  //           const nextArgs = decorator.args.filter((arg) => {
-  //             if (arg.value.entityKind !== "Value") return false;
-
-  //             const isString = arg.value.valueKind === "StringValue";
-  //             const isOperativeVisibility =
-  //               arg.value.valueKind === "EnumValue" && arg.value.value.enum === Lifecycle;
-
-  //             return !(isString || isOperativeVisibility);
-  //           });
-
-  //           if (nextArgs.length > 0) {
-  //             decorators.push({
-  //               ...decorator,
-  //               args: nextArgs,
-  //             });
-  //           }
-  //         } else if (!(decFn === $invisible && decorator.args[0]?.value === Lifecycle)) {
-  //           decorators.push(decorator);
-  //         }
-  //       }
-
-  //       clone.decorators = decorators;
-
-  //       resetVisibilityModifiersForClass(program, clone, Lifecycle);
-
-  //       if (prop.type.kind === "Model") {
-  //         const mutated = prop.optional
-  //           ? mutateSubgraph(program, [innerMutator], prop.type)
-  //           : mutateSubgraph(program, [primaryMutator], prop.type);
-  //         clone.type = mutated.type;
-  //       }
-  //     },
-  //   },
-  // };
-
-  // const primaryMutator: Mutator = {
-  //   name: "VisibilityFilter",
-  //   Union: {
-  //     filter: () => MutatorFlow.DoNotRecur,
-  //     mutate: (union, clone, program) => {
-  //       for (const [key, member] of union.variants) {
-  //         if (member.type.kind === "Model" || member.type.kind === "Union") {
-  //           const variant: UnionVariant = {
-  //             ...member,
-  //             type: mutateSubgraph(program, [primaryMutator], member.type).type,
-  //           };
-  //           clone.variants.set(key, variant);
-  //         }
-  //       }
-  //     },
-  //   },
-  //   Model: {
-  //     filter: () => MutatorFlow.DoNotRecur,
-  //     mutate: (model, clone, program, realm) => {
-  //       for (const [key, prop] of model.properties) {
-  //         if (!isVisible(program, prop, primaryFilter)) {
-  //           // Property is not visible, remove it
-  //           clone.properties.delete(key);
-  //           realm.remove(clone);
-  //         } else {
-  //           const mutated = mutateSubgraph(program, [mpMutatorPrimary], prop);
-
-  //           clone.properties.set(key, mutated.type as ModelProperty);
-  //         }
-  //       }
-
-  //       clone.decorators = clone.decorators.filter((d) => d.decorator !== $applyMergePatch);
-  //     },
-  //   },
-  //   ModelProperty: {
-  //     filter: () => MutatorFlow.DoNotRecur,
-  //     mutate: (prop, clone, program) => {
-  //       if (prop.type.kind === "Model") {
-  //         clone.type = mutateSubgraph(program, [primaryMutator], prop.type).type;
-  //       }
-  //     },
-  //   },
-  //   Tuple: {
-  //     filter: () => MutatorFlow.DoNotRecur,
-  //     mutate: (tuple, clone, program) => {
-  //       for (const [index, element] of tuple.values.entries()) {
-  //         if (element.kind === "Model") {
-  //           clone.values[index] = mutateSubgraph(program, [self], element).type;
-  //         }
-  //       }
-  //     },
-  //   },
-  // };
-
-  // const innerMutator: Mutator = {
-  //   name: "VisibilityFilter",
-  //   Union: {
-  //     filter: () => MutatorFlow.DoNotRecur,
-  //     mutate: (union, clone, program) => {
-  //       for (const [key, member] of union.variants) {
-  //         if (member.type.kind === "Model" || member.type.kind === "Union") {
-  //           const variant: UnionVariant = {
-  //             ...member,
-  //             type: mutateSubgraph(program, [self], member.type).type,
-  //           };
-  //           clone.variants.set(key, variant);
-  //         }
-  //       }
-  //     },
-  //   },
-  //   Model: {
-  //     filter: () => MutatorFlow.DoNotRecur,
-  //     mutate: (model, clone, program, realm) => {
-  //       for (const [key, prop] of model.properties) {
-  //         if (!isVisible(program, prop, innerFilter)) {
-  //           // Property is not visible, remove it
-  //           clone.properties.delete(key);
-  //           realm.remove(clone);
-  //         } else {
-  //           const mutated = mutateSubgraph(program, [mpMutatorInner], prop);
-
-  //           clone.properties.set(key, mutated.type as ModelProperty);
-  //         }
-  //       }
-
-  //       clone.decorators = clone.decorators.filter((d) => d.decorator !== $applyMergePatch);
-  //     },
-  //   },
-  //   ModelProperty: {
-  //     filter: () => MutatorFlow.DoNotRecur,
-  //     mutate: (prop, clone, program) => {
-  //       if (prop.type.kind === "Model") {
-  //         clone.type = mutateSubgraph(program, [innerMutator], prop.type).type;
-  //       }
-  //     },
-  //   },
-  //   Tuple: {
-  //     filter: () => MutatorFlow.DoNotRecur,
-  //     mutate: (tuple, clone, program) => {
-  //       for (const [index, element] of tuple.values.entries()) {
-  //         if (isMutableType(element)) {
-  //           clone.values[index] = mutateSubgraph(program, [innerMutator], element).type;
-  //         }
-  //       }
-  //     },
-  //   },
-  // };
-
-  // return primaryMutator;
 
   function bindMutator(
     visibilityFilter: VisibilityFilter,
@@ -361,9 +203,9 @@ function createMergePatchMutator(
           if (isMutableType(prop.type)) {
             const mutated = clone.optional
               ? // Optional property --> Transition to interior mutator
-                mutateSubgraph(program, [_optionalInteriorMutator ?? self], prop)
+                cachedMutateSubgraph(program, _optionalInteriorMutator ?? self, prop)
               : // Required property --> Recur on this mutator.
-                mutateSubgraph(program, [self], prop);
+                cachedMutateSubgraph(program, self, prop);
 
             clone.type = mutated.type;
           }
@@ -385,7 +227,8 @@ function createMergePatchMutator(
             if (isMutableType(member.type)) {
               const variant: UnionVariant = {
                 ...member,
-                type: mutateSubgraph(program, [self], member.type).type,
+                type: cachedMutateSubgraph(program, _optionalInteriorMutator ?? self, member.type)
+                  .type,
               };
               clone.variants.set(key, variant);
             }
@@ -398,13 +241,20 @@ function createMergePatchMutator(
           if ($(realm).array.is(model) && isMutableType(model.indexer!.value)) {
             clone.indexer = {
               key: model.indexer!.key,
-              value: mutateSubgraph(program, [_arrayInteriorMutator ?? self], model.indexer!.value)
-                .type,
+              value: cachedMutateSubgraph(
+                program,
+                _arrayInteriorMutator ?? self,
+                model.indexer!.value,
+              ).type,
             };
           } else if ($(realm).record.is(model) && isMutableType(model.indexer!.value)) {
             clone.indexer = {
               key: model.indexer!.key,
-              value: mutateSubgraph(program, [self], model.indexer!.value).type,
+              value: cachedMutateSubgraph(
+                program,
+                _optionalInteriorMutator ?? self,
+                model.indexer!.value,
+              ).type,
             };
           }
 
@@ -425,11 +275,12 @@ function createMergePatchMutator(
           ctx.call($friendlyName, clone, nameTemplate, clone);
         },
       },
+      // Passthroughs if the primary type is a referent like ModelProperty or UnionVariant.
       ModelProperty: {
         filter: () => MutatorFlow.DoNotRecur,
         mutate: (prop, clone, program) => {
           if (isMutableType(prop.type)) {
-            clone.type = mutateSubgraph(program, [self], prop.type).type;
+            clone.type = cachedMutateSubgraph(program, self, prop.type).type;
           }
         },
       },
@@ -437,7 +288,7 @@ function createMergePatchMutator(
         filter: () => MutatorFlow.DoNotRecur,
         mutate: (variant, clone, program) => {
           if (isMutableType(variant.type)) {
-            const mutated = mutateSubgraph(program, [self], variant.type);
+            const mutated = cachedMutateSubgraph(program, self, variant.type);
             clone.type = mutated.type;
           }
         },
@@ -447,7 +298,7 @@ function createMergePatchMutator(
         mutate: (tuple, clone, program) => {
           for (const [index, element] of tuple.values.entries()) {
             if (isMutableType(element)) {
-              clone.values[index] = mutateSubgraph(program, [self], element).type;
+              clone.values[index] = cachedMutateSubgraph(program, self, element).type;
             }
           }
         },
