@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { printIdentifier } from "../../../src/core/helpers/syntax-utils.js";
 
 it.each([
+  ["", "``"],
   ["foo", "foo"],
   ["foo-bar", "`foo-bar`"],
   ["9test", "`9test`"],

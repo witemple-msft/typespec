@@ -72,6 +72,13 @@ using Some.Namespace;
     });
   });
 
+  it("keeps empty backticked identifier stable", async () => {
+    const code = `/**/op a():[({e:""}),{N:\`\`<n>}&(o)];scalar B;`;
+    const first = await format(code);
+    const second = await format(first);
+    strictEqual(second, first);
+  });
+
   describe("model", () => {
     it("format empty model on single line", async () => {
       await assertFormat({

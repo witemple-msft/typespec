@@ -32,7 +32,7 @@ export function printIdentifier(
 
 function needBacktick(sv: string, context: "allow-reserved" | "disallow-reserved"): boolean {
   if (sv.length === 0) {
-    return false;
+    return true;
   }
   if (context === "allow-reserved") {
     if (ReservedKeywords.has(sv)) {
