@@ -859,17 +859,16 @@ async function createProgram(
     code: string,
     directives: readonly DirectiveExpressionNode[],
   ): Directive | undefined {
-    for (const directive of directives.map((x) => parseDirective(x))) {
-      if (directive.name === "suppress") {
-        if (directive.code === code) {
-          return directive;
-        }
+    for (const node of directives) {
+      const directive = parseDirective(node);
+      if (directive?.name === "suppress" && directive.code === code) {
+        return directive;
       }
     }
     return undefined;
   }
 
-  function parseDirective(node: DirectiveExpressionNode): Directive {
+  function parseDirective(node: DirectiveExpressionNode): Directive | undefined {
     const args = node.arguments.map((x) => {
       return x.kind === SyntaxKind.Identifier ? x.sv : x.value;
     });
@@ -879,7 +878,7 @@ async function createProgram(
       case "deprecated":
         return { name: "deprecated", message: args[0], node };
       default:
-        throw new Error("Unexpected directive name.");
+        return undefined;
     }
   }
 

@@ -92,4 +92,34 @@ describe("compiler: suppress", () => {
 
     expectDiagnostics(diagnostics, [{ code: "suppress-error" }, { code: "no-id-property" }]);
   });
+
+  it("doesn't crash with malformed directives while evaluating suppression", async () => {
+    host.addTypeSpecFile(
+      "main.tsp",
+      `
+      #"
+      model Foo {
+        value: string;
+      }
+      `,
+    );
+
+    await host.compileAndDiagnose("main.tsp", { nostdlib: true });
+
+    navigateProgram(host.program, {
+      model: (model) => {
+        if (model.name === "Foo") {
+          host.program.reportDiagnostic({
+            severity: "warning",
+            code: "test-warning",
+            message: "test warning",
+            target: model,
+          });
+        }
+      },
+    });
+
+    const warningDiagnostics = host.program.diagnostics.filter((x) => x.code === "test-warning");
+    expectDiagnostics(warningDiagnostics, { code: "test-warning" });
+  });
 });
