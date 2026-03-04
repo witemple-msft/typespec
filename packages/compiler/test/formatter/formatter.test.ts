@@ -79,6 +79,15 @@ using Some.Namespace;
     strictEqual(second, first);
   });
 
+  it("keeps nested unions in model properties stable", async () => {
+    const code = `#suppress""
+model t{N:([""]&2);B:[{i:z<e>},\`\`<t>],m:[(e)];e:4}extern dec I(g);@p({m:4})extern dec o(i);model N{I:""|{g:n}}#suppress""
+model a{e:((T<[]>));z:({T:4})|(5|4)|b}enum B{}`;
+    const first = await format(code);
+    const second = await format(first);
+    strictEqual(second, first);
+  });
+
   describe("model", () => {
     it("format empty model on single line", async () => {
       await assertFormat({

@@ -1396,16 +1396,16 @@ export function printUnion(
   options: TypeSpecPrettierOptions,
   print: PrettierChildPrint,
 ) {
-  const node = path.node;
-  const shouldHug = shouldHugType(node);
+  const flattenedTypes = getFlattenedUnionOptions(path, print);
+  const shouldHug = flattenedTypes.length < 4;
 
-  const types = path.map((typePath) => {
-    let printedType: string | Doc = print(typePath);
+  const types = flattenedTypes.map((type) => {
+    let printedType: string | Doc = type;
     if (!shouldHug) {
       printedType = align(2, printedType);
     }
     return printedType;
-  }, "options");
+  });
 
   if (shouldHug) {
     return join(" | ", types);
@@ -1416,11 +1416,28 @@ export function printUnion(
   return group(indent(code));
 }
 
-function shouldHugType(node: Node) {
-  if (node.kind === SyntaxKind.UnionExpression || node.kind === SyntaxKind.IntersectionExpression) {
-    return node.options.length < 4;
+function getFlattenedUnionOptions(path: AstPath<UnionExpressionNode>, print: PrettierChildPrint): Doc[] {
+  const types: Doc[] = [];
+  path.map((typePath) => {
+    appendFlattenedUnionOptions(typePath as AstPath<Node>, print, types);
+    return "";
+  }, "options");
+  return types;
+}
+
+function appendFlattenedUnionOptions(
+  path: AstPath<Node>,
+  print: PrettierChildPrint,
+  types: Doc[],
+): void {
+  if (path.node.kind === SyntaxKind.UnionExpression) {
+    path.map((nestedPath) => {
+      appendFlattenedUnionOptions(nestedPath as AstPath<Node>, print, types);
+      return "";
+    }, "options");
+  } else {
+    types.push(print(path));
   }
-  return false;
 }
 
 export function printTypeReference(
