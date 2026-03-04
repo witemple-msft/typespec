@@ -115,13 +115,20 @@ export function printTypeSpec(
   const printedNode = printNode(path, options, print);
   const value = needsParens(path, options) ? ["(", printedNode, ")"] : printedNode;
   const parts: Doc[] = [docs, directives, value];
-  if (node.kind === SyntaxKind.TypeSpecScript) {
+  if (node.kind === SyntaxKind.TypeSpecScript && hasPrintableScriptContent(node)) {
     // For TypeSpecScript(root of TypeSpec document) we had a new line at the end.
     // This must be done here so the hardline entry can be the last item of the doc array returned by the printer
     // so the markdown(and other embedded formatter) can omit that extra line.
     parts.push(hardline);
   }
   return parts;
+}
+
+function hasPrintableScriptContent(node: TypeSpecScriptNode): boolean {
+  return (
+    (node.comments?.length ?? 0) > 0 ||
+    node.statements.some((statement) => statement.kind !== SyntaxKind.EmptyStatement)
+  );
 }
 
 function shouldPrintDirective(node: Node) {

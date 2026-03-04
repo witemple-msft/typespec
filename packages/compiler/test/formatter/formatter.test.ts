@@ -2704,6 +2704,13 @@ alias foo = ""; /* one */ /* two */ /* three */
   `,
       });
     });
+
+    it("formats semicolon-only file stably", async () => {
+      const first = await format(";");
+      const second = await format(first);
+      strictEqual(first, "");
+      strictEqual(second, first);
+    });
   });
 
   describe("member expression", () => {
